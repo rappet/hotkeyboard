@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# KiCad
+stimboard-backups
+fp-info-cache
+
+# Export
+gerber
+gerber.zip
+stimboard.xml
+stimboard.csv
+
