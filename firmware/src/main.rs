@@ -17,14 +17,22 @@ use stm32f0xx_hal::{
 };
 use usb_device::prelude::*;
 use usbd_human_interface_device::{
-    device::keyboard::BootKeyboardConfig, page::Keyboard, usb_class::UsbHidClassBuilder,
+    device::{
+        consumer::{ConsumerControlConfig, MultipleConsumerReport},
+        keyboard::BootKeyboardConfig,
+    },
+    page::{Consumer, Keyboard},
+    usb_class::UsbHidClassBuilder,
 };
 
 mod parameters;
 
 #[derive(Copy, Clone)]
+// Allow dead code as certain action might or might not be used depending on config
+#[allow(dead_code)]
 pub(crate) enum Action {
     Keyboard(Keyboard),
+    Consumer(Consumer),
 }
 
 #[entry]
@@ -64,6 +72,9 @@ fn main() -> ! {
     let mut keyboard = UsbHidClassBuilder::new()
         .add_device(BootKeyboardConfig::default())
         .build(&usb_allocator);
+    let mut consumer_device = UsbHidClassBuilder::new()
+        .add_device(ConsumerControlConfig::default())
+        .build(&usb_allocator);
 
     let mut usb_dev = UsbDeviceBuilder::new(
         &usb_allocator,
@@ -82,10 +93,11 @@ fn main() -> ! {
 
     loop {
         i = i.wrapping_add(1);
-        let left = left_key.is_high().unwrap();
-        let right = right_key.is_high().unwrap();
 
         if i % 10 == 0 {
+            let left = left_key.is_high().unwrap();
+            let right = right_key.is_high().unwrap();
+
             let keys = [
                 match parameters::LEFT_KEY {
                     Action::Keyboard(key) if left => key,
@@ -98,15 +110,34 @@ fn main() -> ! {
             ];
 
             keyboard.device().write_report(keys).ok();
+
+            let consumers = [
+                match parameters::LEFT_KEY {
+                    Action::Consumer(consumer) if left => consumer,
+                    _ => Consumer::Unassigned,
+                },
+                match parameters::RIGHT_KEY {
+                    Action::Consumer(consumer) if right => consumer,
+                    _ => Consumer::Unassigned,
+                },
+                Consumer::Unassigned,
+                Consumer::Unassigned,
+            ];
+
+            consumer_device
+                .device()
+                .write_report(&MultipleConsumerReport { codes: consumers })
+                .ok();
         }
 
         keyboard.tick().ok();
+        consumer_device.tick().ok();
 
         if nb::block!(timer.wait()).is_ok() {
             keyboard.tick().unwrap();
         }
 
-        if usb_dev.poll(&mut [&mut keyboard]) {
+        if usb_dev.poll(&mut [&mut keyboard, &mut consumer_device]) {
             let _ = keyboard.device().read_report();
         }
     }
